@@ -1,0 +1,131 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <dht.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+
+#define SCREEN_WIDTH 128 // OLED display width,  in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define D4 2 // pin connected to DHT11 sensor
+dht DHT;
+
+Adafruit_SSD1306 display = Adafruit_SSD1306(128, 64, &Wire, -1);
+
+//internet ssid and password to connect
+const char* ssid = "ASG1";
+const char* password = "23456789";
+ESP8266WebServer server(80);
+String displayString;
+
+void handleRoot() {
+  float humi  = DHT.humidity;    // read humidity
+  float temp = DHT.temperature; // read temperature
+
+  // Check if any reads failed.
+  if (isnan(humi) || isnan(temp)) {
+    server.send(500, "text/plain", "Failed to read from DHT sensor!");
+    return;
+  }
+
+  String response = "<!DOCTYPE html><html><head><title>SKIH3113-ASG1 HUMIDIFIER MOBILE TRACKING SYSTEM</title>";
+  response += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  response += "<link rel=\"stylesheet\" href=\"https://use.fontawesome.com/releases/v5.7.2/css/all.css\" integrity=\"sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr\" crossorigin=\"anonymous\">";
+  response += "<style>";
+  response += "html { font-family: Arial; display: inline-block; margin: 0px auto; text-align: center; }";
+  response += "h2 { font-size: 3.0rem; }";
+  response += "p { font-size: 3.0rem; }";
+  response += ".units { font-size: 1.2rem; }";
+  response += ".dht-labels { font-size: 1.5rem; vertical-align: middle; padding-bottom: 15px; }";
+  response += "</style></head><body>";
+  response += "<h2>ESP8266 DHT Server</h2>";
+  response += "<p><i class=\"fas fa-thermometer-half\" style=\"color:#059e8a;\"></i> <span class=\"dht-labels\">Temperature</span> <span id=\"temperature\">" + String(temp, 1) + "</span><sup class=\"units\">&deg;C</sup></p>";
+  response += "<p><i class=\"fas fa-tint\" style=\"color:#00add6;\"></i> <span class=\"dht-labels\">Humidity</span> <span id=\"humidity\">" + String(humi, 1) + "</span><sup class=\"units\">%</sup></p>";
+  response += "<script>setInterval(function() { fetch('/values').then(response => response.json()).then(data => { document.getElementById('temperature').innerText = data.temp; document.getElementById('humidity').innerText = data.humi; }); }, 1000);</script>";
+  response += "</body></html>";
+
+  server.send(200, "text/html", response);
+}
+
+void handleValues() {
+  float humi  = DHT.humidity;    // read humidity
+  float temp = DHT.temperature; // read temperature
+
+  String json = "{\"temp\": " + String(temp, 1) + ", \"humi\": " + String(humi, 1) + "}";
+  server.send(200, "application/json", json);
+}
+
+void setup() {
+  Serial.begin(115200);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x64)
+  display.display();
+  delay(100);
+  display.clearDisplay();
+  display.display();
+  display.setTextSize(1.75);
+  display.setTextColor(WHITE);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.print("\nIP address: "); // IP address to be connected through our mobile device to track the real-time data of the sensors
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleRoot);
+  server.on("/values", HTTP_GET, handleValues); // New handler for getting real-time temperature and humidity values
+  server.begin();
+  Serial.println("Http server started");
+}
+
+void loop() {
+  server.handleClient(); // Handle web server requests
+
+  int chk = DHT.read11(D4); 
+  float humi  = DHT.humidity;    // read humidity
+  float temp = DHT.temperature; // read temperature
+
+  // Check if any reads failed.
+  if (isnan(humi) || isnan(temp)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  // print the temperature and humidity read to serial
+  Serial.print("Temperature: ");
+  Serial.print(String(temp,1));
+  Serial.print("°C \nHumidity: ");
+  Serial.print(String(humi,1));
+  Serial.println("%");
+
+  display.setCursor(0,0);
+  display.clearDisplay();
+
+  // display and format temperature
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("Temperature: ");
+  display.setTextSize(2);
+  display.setCursor(0,10);
+  display.print(String(temp, 1)); 
+  display.print(" ");
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);
+  display.setTextSize(2);
+  display.print("C");
+  
+  // display and format humidity
+  display.setTextSize(1);
+  display.setCursor(0, 35);
+  display.print("Humidity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(String(humi, 1));
+  display.print(" %");
+  
+  display.display();
+  delay(1000);
+}
