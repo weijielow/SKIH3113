@@ -14,6 +14,7 @@ float temperature, humidity;      // Variables to store temperature and humidity
 const int relayPin = 5;           // GPIO5 (D1) for relay control
 bool relayState = LOW;            // Initial relay state
 bool manualRelayControl = false;  // Flag to indicate manual relay control
+bool isAPMode = false;            // Flag to indicate if the ESP is in AP mode
 
 void readData();                                                                                // Function to read data from EEPROM
 boolean testWiFi();                                                                             // Function to test WiFi connection
@@ -51,27 +52,31 @@ void setup() {
 void launchWeb(int webtype) {
   createWebServer(webtype);  // Create web server based on mode
   server.begin();            // Start the web server
+  isAPMode = (webtype == 1); // Set the flag based on the mode
 }
 
 void loop() {
-  server.handleClient();                // Handle incoming client requests
-  humidity = dht.readHumidity();        // Read humidity from DHT sensor
-  temperature = dht.readTemperature();  // Read temperature from DHT sensor
-  Serial.print("humidity: ");           // Print humidity to serial
-  Serial.println(humidity);             // Print humidity value to serial
-  Serial.print("temperature: ");        // Print temperature to serial
-  Serial.println(temperature);          // Print temperature value to serial
+  server.handleClient();  // Handle incoming client requests
 
-  if (!manualRelayControl) {  // Check if relay control is not manual
-    if (temperature > tempThreshold || humidity > humThreshold) {
-      digitalWrite(relayPin, HIGH);  // Turn on the relay if conditions are met
-      relayState = true;             // Set relay state to true
-    } else {
-      digitalWrite(relayPin, LOW);  // Turn off the relay if conditions are not met
-      relayState = false;           // Set relay state to false
+  if (!isAPMode) {  // Only read and print sensor data if not in AP mode
+    humidity = dht.readHumidity();        // Read humidity from DHT sensor
+    temperature = dht.readTemperature();  // Read temperature from DHT sensor
+    Serial.print("humidity: ");           // Print humidity to serial
+    Serial.println(humidity);             // Print humidity value to serial
+    Serial.print("temperature: ");        // Print temperature to serial
+    Serial.println(temperature);          // Print temperature value to serial
+
+    if (!manualRelayControl) {  // Check if relay control is not manual
+      if (temperature > tempThreshold || humidity > humThreshold) {
+        digitalWrite(relayPin, HIGH);  // Turn on the relay if conditions are met
+        relayState = true;             // Set relay state to true
+      } else {
+        digitalWrite(relayPin, LOW);  // Turn off the relay if conditions are not met
+        relayState = false;           // Set relay state to false
+      }
     }
+    checkWiFiConnection();  // Check WiFi connection status and handle reconnection
   }
-
   delay(1000);  // Delay for 1 second
 }
 
@@ -266,6 +271,37 @@ boolean testWiFi() {
   }
   Serial.println("Connection time out");  // Print timeout message
   return false;                           // Return false if not connected
+}
+
+void checkWiFiConnection() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi connection lost. Attempting to reconnect...");
+    WiFi.disconnect();
+    delay(1000);
+    WiFi.begin(ssid.c_str(), password.c_str());
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\nReconnected to WiFi");
+      Serial.print("WiFi local IP: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("\nFailed to reconnect to WiFi. Switching to AP mode.");
+      const char* ssidap = "NodeMCU-AP";
+      const char* passap = "";
+      WiFi.mode(WIFI_AP);
+      WiFi.softAP(ssidap, passap);
+      Serial.print("AP mode-http://");
+      Serial.println(WiFi.softAPIP());
+      launchWeb(1);
+    }
+  }
 }
 
 void writeData(String a, String b, String c, bool d, float tempThresh, float humThresh) {
